@@ -129,7 +129,10 @@ class MainActivity : Activity() {
         shownToday = false
         val cfg = resources.configuration
         val mainScreen = cfg.smallestScreenWidthDp >= 600
-        val turned = cfg.screenWidthDp > cfg.screenHeightDp
+        // Upright or turned from the whole window, bars included: the main screen is nearly square,
+        // so the space left after the status and navigation bars can't tell (found on the emulator)
+        val bounds = windowManager.currentWindowMetrics.bounds
+        val turned = bounds.width() > bounds.height()
         val mode = when {
             mainScreen && !turned -> WeekView.Mode.SPREAD_V
             mainScreen -> WeekView.Mode.SPREAD_H
