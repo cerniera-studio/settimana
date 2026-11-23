@@ -73,6 +73,8 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (Sources.calendarAllowed(this)) runCatching { contentResolver.registerContentObserver(CalendarContract.Events.CONTENT_URI, true, calendarChanged) }
+        // A knot tied, moved or done in Nodo redraws the margins
+        runCatching { contentResolver.registerContentObserver(android.net.Uri.parse("content://com.cerniera.nodo.cues/week"), false, calendarChanged) }
         if (sheet == null) load()
     }
 
