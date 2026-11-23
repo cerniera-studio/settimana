@@ -38,11 +38,10 @@ walk() {  # name WxH dpi rotation
   adb shell am start -S -n $PKG/.MainActivity --es demo week; sleep 5
   shot "$1-week"; check "Week, $1"
   # Concentrato: halfway through a sideways drag, the words give way to bars (spreads only)
-  adb shell input swipe 900 900 500 900 900 &
+  W=${2%x*}; H=${2#*x}; [ "$4" = 1 ] && { t=$W; W=$H; H=$t; }
+  adb shell input swipe $((W*7/10)) $((H/2)) $((W*3/10)) $((H/2)) 900 &
   sleep 0.7; shot "$1-dragging"; wait; sleep 2
   shot "$1-next-week"
-  adb shell am start -S -n $PKG/.MainActivity --es demo week; sleep 4
-  tap_text "Settimana" >/dev/null; sleep 1
   adb shell am force-stop $PKG
 }
 
