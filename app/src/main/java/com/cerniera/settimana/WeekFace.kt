@@ -50,26 +50,30 @@ object WeekFace {
         // The label opens it (rule 5): the week's dates; on a strip, what's next shares its line
         plan.label?.let { lb ->
             val lp = Grammar.label(c, k, s.muted(lb.cx, lb.cy))
-            // On the right: on a strip, what's next; else overdue knots in rosso, or what's left today
-            val right: Pair<String, Int>? = when {
-                plan.inline -> next(snap)?.let { (t, m) -> "$m · $t" to s.ink(lb.r - 40f, lb.cy) }
-                    ?: (if (!snap.allowed) "Allow your calendar" else "Nothing else this week").let { it to s.muted(lb.r - 40f, lb.cy) }
-                lateKnots.isNotEmpty() -> "${lateKnots.size} overdue" to rosso(s, lb.r - 30f, lb.cy)
-                todayLeft > 0 -> "$todayLeft today" to s.muted(lb.r - 30f, lb.cy)
-                else -> null
+            // On the right: on a strip, what's next; else overdue knots in rosso, or what's left today.
+            // Each has shorter forms; the right-hand words are kept whole, the label gives way first
+            val n = next(snap)
+            val rights: List<Pair<String, Int>> = when {
+                plan.inline && n != null -> listOf("${n.second} · ${n.first}", n.second.substringBefore(" · ") + " · " + n.first, n.second).map { it to s.ink(lb.r - 40f, lb.cy) }
+                plan.inline -> listOf(if (!snap.allowed) "Allow your calendar" else "Nothing else this week", if (!snap.allowed) "Allow" else "Free").map { it to s.muted(lb.r - 40f, lb.cy) }
+                lateKnots.isNotEmpty() -> listOf("${lateKnots.size} overdue", "${lateKnots.size} late").map { it to rosso(s, lb.r - 30f, lb.cy) }
+                todayLeft > 0 -> listOf("$todayLeft today", "$todayLeft").map { it to s.muted(lb.r - 30f, lb.cy) }
+                else -> emptyList()
             }
-            val mp = right?.let { Grammar.meta(c, k, it.second).apply { textAlign = Paint.Align.RIGHT } }
-            // The right-hand words whole when they can be (a strip's next item gets at least half the line)
-            val want = if (right == null || mp == null) 0f else if (plan.inline) min(mp.measureText(right.first), lb.w * 0.6f) else mp.measureText(right.first)
-            val full = "Settimana · ${short(snap.monday)}".uppercase()
-            val options = listOf(full, short(snap.monday).uppercase(), "SETTIMANA")
-            val text = options.firstOrNull { lp.measureText(it) + 16f * k + want <= lb.w } ?: options.last()
-            val shown = Grammar.fit(text, lp, lb.w)
-            cv.capTop(shown, lb.l, lb.t, lp)
-            val used = lp.measureText(shown) + 16f * k
-            if (right != null && mp != null && lb.w - used > 36f * k)
+            val labels = listOf("Settimana · ${short(snap.monday)}".uppercase(), short(snap.monday).uppercase(), "SETTIMANA")
+            val gap = 14f * k
+            var label = labels.firstOrNull { lp.measureText(it) <= lb.w } ?: labels.last()
+            var right: Pair<String, Int>? = null
+            pick@ for (r in rights) {
+                val rw = Grammar.meta(c, k, 0).measureText(r.first)
+                for (l in labels) if (lp.measureText(l) + gap + rw <= lb.w) { label = l; right = r; break@pick }
+            }
+            cv.capTop(Grammar.fit(label, lp, lb.w), lb.l, lb.t, lp)
+            right?.let { (t, col) ->
                 // Set on the label's capitals line, so the two read as one line
-                cv.drawText(Grammar.fit(right.first, mp, lb.w - used), lb.r, lb.b, mp)
+                val mp = Grammar.meta(c, k, col).apply { textAlign = Paint.Align.RIGHT }
+                cv.drawText(t, lb.r, lb.b, mp)
+            }
         }
 
         // The pages' binding: a champagne hairline, as in the app
@@ -194,7 +198,7 @@ object WeekFace {
             cv.capTop(name, box.l, box.t, lp)
             var y = box.t + Grammar.cap(lp) + 6f * k
             // The date beside the name when the day is wide (or short), beneath it when narrow and tall (as the plan's LIST test)
-            val beside = box.w >= 52f * k || box.h < 58f * k
+            val beside = box.w >= 46f * k || box.h < 58f * k
             val nameW = lp.measureText(name)
             val fs = if (beside) min(22f * k, ((box.w - nameW - 8f * k) / 1.15f).coerceAtLeast(9f * k)) else min(22f * k, box.w * 0.4f)
             val fp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Kit.display(c); textSize = fs; color = ink }
@@ -220,6 +224,14 @@ object WeekFace {
         val shown = if (all.size > lines) all.take(max(1, lines - 1)) else all
         val more = all.size - shown.size
         val withTimes = text.w >= 120f * k
+        // Too narrow for a title to read: the day's count instead of a word cut to a letter
+        if (text.w - 8f * k < 44f * k) {
+            val ev = day.events.size; val kn = day.knots.count { !it.done }
+            val words = listOfNotNull(ev.takeIf { it > 0 }?.let { if (it == 1) "1 event" else "$it events" }, kn.takeIf { it > 0 }?.let { if (it == 1) "1 knot" else "$it knots" })
+            var yy = text.t
+            for (w in words.take(lines)) { cv.drawText(Grammar.fit(w, mp, text.w), text.l, yy + (lead - Grammar.META * k) / 2 + Grammar.cap(mp), mp); yy += lead }
+            return
+        }
         // On a single line, the count sits at its end rather than taking the line from the first item
         val inlineMore = if (more > 0 && shown.size == lines) "+$more" else null
         val endRoom = inlineMore?.let { mp.measureText(it) + 6f * k } ?: 0f
@@ -281,7 +293,7 @@ object WeekFace {
         val mp = Grammar.meta(c, k, s.muted(wb.cx, wb.b - 6f))
         val metaH = Grammar.META * k * 1.3f
         val room = wb.h - metaH - 4f * k
-        val title = Grammar.title(c, n.first, s.ink(wb.cx, wb.cy), wb.w, room, k, lines = 3, largest = 28f)
+        val title = Grammar.title(c, n.first, s.ink(wb.cx, wb.cy), wb.w, room, k, lines = 3, largest = 32f)
         val end = title.draw(cv, wb.l, wb.t)
         cv.drawText(Grammar.fit(n.second, mp, wb.w), wb.l, min(wb.b, end + 4f * k + Grammar.cap(mp)), mp)
     }

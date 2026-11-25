@@ -118,7 +118,7 @@ object WidgetPlan {
         val top = label.b + g; val bottom = foot.t - g
         val avail = bottom - top
         // What's next takes a third, within reason; the days take the rest (rule 7: the hero first)
-        val wordsH = (avail * 0.34f).coerceIn(38f * k, 96f * k)
+        val wordsH = (avail * 0.32f).coerceIn(38f * k, 84f * k)
         val words: Box?
         val hero: Box
         if (avail - wordsH - g < 44f * k) { words = null; hero = Box(pad, top, w - pad, bottom) }
