@@ -45,6 +45,8 @@ class MainActivity : Activity() {
     private val zone: ZoneId get() = ZoneId.systemDefault()
     private var monday: LocalDate = Week.monday(LocalDate.now())
     private var demo = false
+    /** The day a widget's tap asked for: the cover's shapes open on it rather than on today. */
+    private var focus: LocalDate? = null
     private var asked = 1
     private var sheet: Sheet? = null
     private var week: WeekView? = null
@@ -60,14 +62,19 @@ class MainActivity : Activity() {
         Kit.follow(this)
         val debug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         demo = debug && intent?.getStringExtra("demo") == "week"
-        intent?.getStringExtra("date")?.let { runCatching { monday = Week.monday(LocalDate.parse(it)) } }
+        intent?.getStringExtra("date")?.let { runCatching { LocalDate.parse(it).let { d -> focus = d; monday = Week.monday(d) } } }
+        WeekWidget.measured(this, intent)
+        // Test only (25 Nov 2026): the widget at the family's size matrix, its states and a resize sweep, as files
+        if (debug && intent?.getBooleanExtra("matrix", false) == true) runCatching { WidgetMatrix.save(this) }
         if (!demo && !Sources.calendarAllowed(this)) requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR), ASK)
         render()
     }
 
     override fun onNewIntent(i: Intent) {
         super.onNewIntent(i)
-        i.getStringExtra("date")?.let { runCatching { monday = Week.monday(LocalDate.parse(it)); render() } }
+        setIntent(i)
+        WeekWidget.measured(this, i)
+        i.getStringExtra("date")?.let { runCatching { LocalDate.parse(it).let { d -> focus = d; monday = Week.monday(d) }; render() } }
     }
 
     override fun onResume() {
@@ -82,7 +89,7 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == ASK) render()
+        if (requestCode == ASK) { render(); Thread { runCatching { WeekWidget.refresh(applicationContext) } }.start() }
     }
 
     override fun onConfigurationChanged(c: Configuration) { super.onConfigurationChanged(c); Kit.follow(this); render() }
@@ -107,7 +114,8 @@ class MainActivity : Activity() {
     private fun firstShow(v: WeekView) {
         if (shownToday) return
         shownToday = true
-        val i = java.time.temporal.ChronoUnit.DAYS.between(monday, LocalDate.now(zone)).toInt()
+        val target = focus?.takeIf { Week.monday(it) == monday } ?: LocalDate.now(zone)
+        val i = java.time.temporal.ChronoUnit.DAYS.between(monday, target).toInt()
         if (i in 0..6 && (v.mode == WeekView.Mode.COLUMN || v.mode == WeekView.Mode.ROW)) v.post { v.show(i, animate = false) }
     }
 

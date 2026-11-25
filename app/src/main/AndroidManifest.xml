@@ -8,6 +8,8 @@
 
     <queries>
         <package android:name="com.cerniera.nodo" />
+        <!-- Fold Widgets' look (finish and corners), as Nodo, Dorso and Riserva read it -->
+        <package android:name="com.fergusonconsultancy.foldwidgets" />
         <!-- Opening an event and adding one: whichever calendar app the phone has -->
         <intent>
             <action android:name="android.intent.action.INSERT" />
@@ -38,5 +40,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- The week on the home screen (25 Nov 2026) -->
+        <receiver
+            android:name=".WeekWidget"
+            android:exported="true"
+            android:label="@string/widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <!-- Fold Widgets says its look or the wallpaper changed -->
+                <action android:name="com.cerniera.LOOK_CHANGED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/week_widget" />
+        </receiver>
+
+        <!-- Redraws the widget when the calendar or Nodo's knots change -->
+        <service
+            android:name=".Watch"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
     </application>
 </manifest>

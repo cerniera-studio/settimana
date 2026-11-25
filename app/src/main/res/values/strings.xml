@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Settimana</string>
+    <string name="widget_name">Settimana: the week</string>
+    <string name="widget_description">The week\'s balance at a glance, with Nodo\'s knots. Tap a day to open it.</string>
 </resources>

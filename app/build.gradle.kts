@@ -47,6 +47,9 @@ android {
         jvmTarget = "17"
     }
 
+    // The widget plan's tests touch the Kit's grammar, which names Android's text classes
+    testOptions { unitTests.isReturnDefaultValues = true }
+
     lint {
         abortOnError = false
         checkReleaseBuilds = false

@@ -67,6 +67,19 @@ adb shell input keyevent KEYCODE_BACK; sleep 2; shot permission-refused
 adb shell pm grant $PKG android.permission.READ_CALENDAR
 adb shell am force-stop $PKG; adb shell am start -n $PKG/.MainActivity; sleep 4; shot empty-week
 
+# The week widget (25 Nov 2026), drawn by its own painter: the family's 13-size matrix, the picker's
+# preview, its states, portrait and landscape pairs, and a sweep from the smallest resize to the main screen
+adb shell am force-stop $PKG
+adb shell am start -W -n $PKG/.MainActivity --ez matrix true --es demo week >/dev/null; sleep 8
+for f in $(adb shell run-as $PKG ls files | tr -d '\r' | grep -E '^(matrix-|state-|preview_|pairs|sweep).*\.png$'); do
+  adb exec-out run-as $PKG cat "files/$f" > "shot-widget-$f"
+done
+ls -la shot-widget-* || echo "::error::no widget pictures were drawn"
+[ -s shot-widget-sweep.png ] || echo "::error::the widget's resize sweep was not drawn"
+
+# The widget's real path: Settimana opened from a day's tap, on that day
+adb shell am start -S -n $PKG/.MainActivity --es demo week --es date "$(date -d 'next sunday' +%F 2>/dev/null || date +%F)"; sleep 5; shot widget-day-tap
+
 adb logcat -d > app-log.txt
 if crashed; then echo "::error::Settimana crashed"; grep -A20 "FATAL EXCEPTION" app-log.txt | head -40; exit 1; fi
 echo "No crash"
