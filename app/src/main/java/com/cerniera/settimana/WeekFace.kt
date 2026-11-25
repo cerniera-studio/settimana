@@ -50,12 +50,7 @@ object WeekFace {
         // The label opens it (rule 5): the week's dates; on a strip, what's next shares its line
         plan.label?.let { lb ->
             val lp = Grammar.label(c, k, s.muted(lb.cx, lb.cy))
-            val full = "Settimana · ${short(snap.monday)}".uppercase()
-            val text = listOf(full, short(snap.monday).uppercase(), "SETTIMANA").firstOrNull { lp.measureText(it) <= lb.w } ?: full
-            val shown = Grammar.fit(text, lp, lb.w)
-            cv.capTop(shown, lb.l, lb.t, lp)
-            val used = lp.measureText(shown) + 16f * k
-            // On the right: overdue knots in rosso, else what's left today; on a strip, what's next
+            // On the right: on a strip, what's next; else overdue knots in rosso, or what's left today
             val right: Pair<String, Int>? = when {
                 plan.inline -> next(snap)?.let { (t, m) -> "$m · $t" to s.ink(lb.r - 40f, lb.cy) }
                     ?: (if (!snap.allowed) "Allow your calendar" else "Nothing else this week").let { it to s.muted(lb.r - 40f, lb.cy) }
@@ -63,11 +58,18 @@ object WeekFace {
                 todayLeft > 0 -> "$todayLeft today" to s.muted(lb.r - 30f, lb.cy)
                 else -> null
             }
-            if (right != null && lb.w - used > 40f * k) {
-                val mp = Grammar.meta(c, k, right.second).apply { textAlign = Paint.Align.RIGHT }
+            val mp = right?.let { Grammar.meta(c, k, it.second).apply { textAlign = Paint.Align.RIGHT } }
+            // The right-hand words whole when they can be (a strip's next item gets at least half the line)
+            val want = if (right == null || mp == null) 0f else if (plan.inline) min(mp.measureText(right.first), lb.w * 0.6f) else mp.measureText(right.first)
+            val full = "Settimana · ${short(snap.monday)}".uppercase()
+            val options = listOf(full, short(snap.monday).uppercase(), "SETTIMANA")
+            val text = options.firstOrNull { lp.measureText(it) + 16f * k + want <= lb.w } ?: options.last()
+            val shown = Grammar.fit(text, lp, lb.w)
+            cv.capTop(shown, lb.l, lb.t, lp)
+            val used = lp.measureText(shown) + 16f * k
+            if (right != null && mp != null && lb.w - used > 36f * k)
                 // Set on the label's capitals line, so the two read as one line
                 cv.drawText(Grammar.fit(right.first, mp, lb.w - used), lb.r, lb.b, mp)
-            }
         }
 
         // The pages' binding: a champagne hairline, as in the app
@@ -76,7 +78,7 @@ object WeekFace {
             cv.drawRect(RectF(b.l, b.t, b.r, b.b), p)
         }
 
-        plan.cells.forEachIndexed { i, b -> cell(c, cv, s, b, snap.days.getOrNull(i), snap, k, plan.detail) }
+        plan.cells.forEachIndexed { i, b -> cell(c, cv, s, b, snap.days.getOrNull(i), snap, k, WidgetPlan.shown(plan, i, b)) }
 
         // What's next (ROW and COLUMN): the title as large as the room allows, its when beneath
         plan.words?.let { wb -> words(c, cv, s, wb, snap, k, lateKnots.size) }
@@ -191,10 +193,12 @@ object WeekFace {
         } else {
             cv.capTop(name, box.l, box.t, lp)
             var y = box.t + Grammar.cap(lp) + 6f * k
-            val fs = min(22f * k, box.w * 0.4f)
+            // The date beside the name when the day is wide (or short), beneath it when narrow and tall (as the plan's LIST test)
+            val beside = box.w >= 52f * k || box.h < 58f * k
+            val nameW = lp.measureText(name)
+            val fs = if (beside) min(22f * k, ((box.w - nameW - 8f * k) / 1.15f).coerceAtLeast(9f * k)) else min(22f * k, box.w * 0.4f)
             val fp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Kit.display(c); textSize = fs; color = ink }
-            // The date beside the name when the column is wide, beneath it otherwise
-            if (box.w >= lp.measureText(name) + fp.measureText("30") + 14f * k && box.h < 150f * k) {
+            if (beside) {
                 fp.textAlign = Paint.Align.RIGHT
                 cv.drawText("${day.date.dayOfMonth}", box.r, box.t + Grammar.cap(lp) + 1f, fp)
             } else { cv.capTop("${day.date.dayOfMonth}", box.l, y, fp); y += Grammar.cap(fp) + 7f * k }
@@ -213,19 +217,26 @@ object WeekFace {
             val y = if (across) text.t + min(text.h, lead) / 2 + Grammar.cap(mp) / 2 else text.t + Grammar.cap(mp)
             cv.drawText(if (!snap.allowed) "—" else "Free", text.l, y, mp); return
         }
-        val shown = if (all.size > lines) all.take(lines - 1) else all
+        val shown = if (all.size > lines) all.take(max(1, lines - 1)) else all
         val more = all.size - shown.size
+        val withTimes = text.w >= 120f * k
+        // On a single line, the count sits at its end rather than taking the line from the first item
+        val inlineMore = if (more > 0 && shown.size == lines) "+$more" else null
+        val endRoom = inlineMore?.let { mp.measureText(it) + 6f * k } ?: 0f
         var y = text.t
         for (it in shown) {
             val base = y + (lead - Grammar.META * k) / 2 + Grammar.cap(tp)
             var x = text.l
             dot(cv, x + 2.2f * k, base - Grammar.cap(tp) / 2, 2.2f * k, it.colour)
             x += 8f * k
-            if (it.time != null) { cv.drawText(it.time, x, base, mp); x += mp.measureText(it.time) + 5f * k }
-            if (x < text.r) cv.drawText(Grammar.fit(it.title, tp, text.r - x), x, base, tp)
+            if (withTimes && it.time != null) { cv.drawText(it.time, x, base, mp); x += mp.measureText(it.time) + 5f * k }
+            val last = it === shown.last()
+            val room = text.r - x - (if (last) endRoom else 0f)
+            if (room > 8f * k) cv.drawText(Grammar.fit(it.title, tp, room), x, base, tp)
+            if (last && inlineMore != null) cv.drawText(inlineMore, text.r - mp.measureText(inlineMore), base, mp)
             y += lead
         }
-        if (more > 0) cv.drawText("+$more more", text.l, y + (lead - Grammar.META * k) / 2 + Grammar.cap(mp), mp)
+        if (more > 0 && inlineMore == null) cv.drawText("+$more more", text.l, y + (lead - Grammar.META * k) / 2 + Grammar.cap(mp), mp)
     }
 
     private fun dot(cv: Canvas, x: Float, y: Float, rad: Float, col: Int) { p.shader = null; p.style = Paint.Style.FILL; p.color = col; cv.drawCircle(x, y, rad, p) }

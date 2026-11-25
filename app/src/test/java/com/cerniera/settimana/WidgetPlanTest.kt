@@ -41,7 +41,7 @@ class WidgetPlanTest {
             }
             p.words?.let { wb -> p.label?.let { assertTrue("$at: words under the label", !wb.overlaps(it)) }; p.foot?.let { assertTrue("$at: words over the foot", !wb.overlaps(it)) } }
             p.binding?.let { assertTrue("$at: binding inside the hero", it.within(p.hero)) }
-            p.cells.forEachIndexed { i, b -> assertTrue("$at: day $i can't show ${p.detail}", WidgetPlan.detail(b, p.k) >= p.detail) }
+            p.cells.forEachIndexed { i, b -> assertTrue("$at: day $i can't show ${WidgetPlan.wanted(p.detail, i)}", WidgetPlan.detail(b, p.k) >= WidgetPlan.wanted(p.detail, i)) }
             n++
         }
         assertTrue(n > 10_000)
@@ -97,7 +97,8 @@ class WidgetPlanTest {
         fun at(s: String) = s.split("x").map { it.toFloat() }.let { WidgetPlan.layout(it[0], it[1], weeks[2]) }
         assertTrue("4x2 names every day", at("255x164").detail >= Detail.NAME)
         assertTrue("a tall column names every day", at("128x267").detail >= Detail.INITIAL)
-        assertTrue("a large widget lists every day's events", at("385x480").detail >= Detail.NAME)
+        assertEquals("a large widget lists the weekdays' events", Detail.LIST, at("385x480").detail)
+        assertEquals("the open diary lists them too", Detail.LIST, at("560x300").detail)
     }
 
     @Test fun pagesKeepTheAppsSplit() {

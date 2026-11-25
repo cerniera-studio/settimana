@@ -133,18 +133,26 @@ object WidgetPlan {
     }
 
     /**
-     * The days' boxes at the richest [Detail] every day can reach: each day's share keeps a floor
-     * just large enough for that level (so a quiet Saturday still shows its name when Thursday
-     * shows its name), and the rest is shared by weight. Falls back level by level to the bar.
+     * The days' boxes at the richest [Detail] every weekday can reach: each day's share keeps a
+     * floor just large enough for that level (so a quiet Tuesday still shows its name when Thursday
+     * does), and the rest is shared by weight. As in a paper diary, Saturday and Sunday may take
+     * the smaller boxes: when the weekdays list their events, the weekend may show its names alone.
+     * Falls back level by level to the bar.
      */
     fun fit(hero: Box, arr: Hero, wts: List<Float>, k: Float): Triple<List<Box>, Box?, Detail> {
         for (level in Detail.values().reversed()) {
             val (cells, bind) = cells(hero, arr, wts, k, level) ?: continue
-            if (cells.all { detail(it, k) >= level }) return Triple(cells, bind, level)
+            if (cells.withIndex().all { (i, b) -> detail(b, k) >= wanted(level, i) }) return Triple(cells, bind, level)
         }
         val (cells, bind) = cells(hero, arr, wts, k, Detail.BAR)!!
         return Triple(cells, bind, Detail.BAR)
     }
+
+    /** The level day [i] must reach when the week shows [level]: the weekend one less below the list. */
+    fun wanted(level: Detail, i: Int) = if (i >= 5 && level == Detail.LIST) Detail.NAME else level
+
+    /** The level day [i] is drawn at in [plan]: the plan's own, or the weekend's smaller box. */
+    fun shown(plan: Layout, i: Int, b: Box): Detail = minOf(plan.detail, maxOf(wanted(plan.detail, i), detail(b, plan.k)))
 
     /** The smallest length along its line that gives a day [level], its other side being [cross]; null if none up to [most]. */
     fun need(level: Detail, cross: Float, alongWidth: Boolean, k: Float, most: Float): Float? {
@@ -157,15 +165,31 @@ object WidgetPlan {
         return null
     }
 
+    /** [Week.shares] with a floor of its own for each day. Sums to [total] whenever the floors fit. */
+    fun sharesWith(weights: List<Float>, total: Float, floors: List<Float>): List<Float> {
+        val fixed = BooleanArray(weights.size)
+        while (true) {
+            val freeW = weights.filterIndexed { i, _ -> !fixed[i] }.sum()
+            val freeT = total - floors.filterIndexed { i, _ -> fixed[i] }.sum()
+            val out = weights.mapIndexed { i, w -> if (fixed[i]) floors[i] else if (freeW > 0f) freeT * w / freeW else 0f }
+            val under = out.indices.filter { !fixed[it] && out[it] < floors[it] }
+            if (under.isEmpty()) return out
+            under.forEach { fixed[it] = true }
+        }
+    }
+
     /** The seven days' boxes in [hero], Monday first, and the binding between pages; null if [level] can't fit every day. */
     fun cells(hero: Box, arr: Hero, wts: List<Float>, k: Float, level: Detail = Detail.BAR): Pair<List<Box>, Box?>? {
-        // [cross]: the days' other side; [alongWidth]: whether the line runs across
-        fun split(len: Float, weights: List<Float>, gapWanted: Float, cross: Float, alongWidth: Boolean): Pair<List<Float>, Float>? {
-            val n = weights.size
+        val weekend = wanted(level, 5)
+        // Each item: its weight, the level it needs, and its other side. [alongWidth]: whether the line runs across
+        class Item(val w: Float, val level: Detail, val cross: Float)
+        fun split(len: Float, items: List<Item>, gapWanted: Float, alongWidth: Boolean): Pair<List<Float>, Float>? {
+            val n = items.size
             val gap = min(gapWanted, len / n * 0.25f).coerceAtLeast(0f)
             val total = max(0f, len - gap * (n - 1))
-            val least = need(level, cross, alongWidth, k, total / n) ?: return null
-            return Week.shares(weights, total, max(total / n * 0.55f, least)) to gap
+            val floors = items.map { max(total / n * 0.55f, need(it.level, it.cross, alongWidth, k, total) ?: return null) }
+            if (floors.sum() > total + 0.01f) return null
+            return sharesWith(items.map { it.w }, total, floors) to gap
         }
         fun along(start: Float, sizes: List<Float>, gap: Float): List<Pair<Float, Float>> {
             var x = start
@@ -173,11 +197,11 @@ object WidgetPlan {
         }
         return when (arr) {
             Hero.COLUMNS -> {
-                val (s, gap) = split(hero.w, wts, 4f * k, hero.h, true) ?: return null
+                val (s, gap) = split(hero.w, wts.map { Item(it, level, hero.h) }, 4f * k, true) ?: return null
                 along(hero.l, s, gap).map { (a, b) -> Box(a, hero.t, b, hero.b) } to null
             }
             Hero.ROWS -> {
-                val (s, gap) = split(hero.h, wts, 4f * k, hero.w, false) ?: return null
+                val (s, gap) = split(hero.h, wts.map { Item(it, level, hero.w) }, 4f * k, false) ?: return null
                 along(hero.t, s, gap).map { (a, b) -> Box(hero.l, a, hero.r, b) } to null
             }
             Hero.PAGES_SIDE -> {
@@ -187,13 +211,14 @@ object WidgetPlan {
                 val mid = hero.cx
                 val left = Box(hero.l, hero.t, mid - bind / 2, hero.b)
                 val right = Box(mid + bind / 2, hero.t, hero.r, hero.b)
-                val (ls, lg) = split(left.h, wts.subList(0, 3), 6f * k, left.w, false) ?: return null
+                val (ls, lg) = split(left.h, (0..2).map { Item(wts[it], level, left.w) }, 6f * k, false) ?: return null
                 // The weekend's block holds two days side by side: it needs the height of the narrower one
-                val (rs, rg) = split(right.h, listOf(wts[3], wts[4], wts[5] + wts[6]), 6f * k, (right.w - 6f * k) / 2f, false) ?: return null
+                val (rs, rg) = split(right.h, listOf(Item(wts[3], level, right.w), Item(wts[4], level, right.w),
+                    Item(wts[5] + wts[6], weekend, (right.w - 6f * k) / 2f)), 6f * k, false) ?: return null
                 val lc = along(left.t, ls, lg).map { (a, b) -> Box(left.l, a, left.r, b) }
                 val rr = along(right.t, rs, rg)
                 val end = rr[2]
-                val (ws, wg) = split(right.w, listOf(wts[5], wts[6]), 6f * k, end.second - end.first, true) ?: return null
+                val (ws, wg) = split(right.w, (5..6).map { Item(wts[it], weekend, end.second - end.first) }, 6f * k, true) ?: return null
                 val wk = along(right.l, ws, wg).map { (a, b) -> Box(a, end.first, b, end.second) }
                 (lc + listOf(Box(right.l, rr[0].first, right.r, rr[0].second), Box(right.l, rr[1].first, right.r, rr[1].second)) + wk) to
                     Box(mid - 0.5f, hero.t, mid + 0.5f, hero.b)
@@ -204,8 +229,8 @@ object WidgetPlan {
                 val mid = hero.cy
                 val top = Box(hero.l, hero.t, hero.r, mid - bind / 2)
                 val bot = Box(hero.l, mid + bind / 2, hero.r, hero.b)
-                val (ts, tg) = split(top.w, wts.subList(0, 3), 6f * k, top.h, true) ?: return null
-                val (bs, bg) = split(bot.w, wts.subList(3, 7), 6f * k, bot.h, true) ?: return null
+                val (ts, tg) = split(top.w, (0..2).map { Item(wts[it], level, top.h) }, 6f * k, true) ?: return null
+                val (bs, bg) = split(bot.w, (3..6).map { Item(wts[it], if (it >= 5) weekend else level, bot.h) }, 6f * k, true) ?: return null
                 (along(top.l, ts, tg).map { (a, b) -> Box(a, top.t, b, top.b) } +
                     along(bot.l, bs, bg).map { (a, b) -> Box(a, bot.t, b, bot.b) }) to Box(hero.l, mid - 0.5f, hero.r, mid + 0.5f)
             }
@@ -222,12 +247,13 @@ object WidgetPlan {
         val ip = inner(b, k)
         val iw = b.w - 2 * ip; val ih = b.h - 2 * ip
         return if (across(b)) when {
-            ih >= 11f * k && iw >= 150f * k -> Detail.LIST
+            ih >= 11f * k && iw >= 110f * k -> Detail.LIST
             ih >= 9f * k && iw >= 70f * k -> Detail.NAME
             ih >= 8f * k && iw >= 34f * k -> Detail.INITIAL
             else -> Detail.BAR
         } else when {
-            iw >= 62f * k && ih >= 84f * k -> Detail.LIST
+            // A wide day sets its date beside its name and needs less height than a narrow one
+            (iw >= 60f * k && ih >= 42f * k) || (iw >= 48f * k && ih >= 66f * k) -> Detail.LIST
             iw >= 24f * k && ih >= 40f * k -> Detail.NAME
             iw >= 8f * k && ih >= 26f * k -> Detail.INITIAL
             else -> Detail.BAR
