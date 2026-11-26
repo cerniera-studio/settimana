@@ -67,8 +67,8 @@ walk() {  # name WxH dpi rotation
     turned "$1, swiped right" "$w0" -7
   fi
   if [ "$1" = cover-portrait ]; then
-    # Upright, the cover scrolls up and down: fling to Sunday, then pull on past it for the week after
-    for i in 1 2 3; do adb shell input swipe $((W/2)) $((H*8/10)) $((W/2)) $((H*2/10)) 120; done; sleep 2
+    # Upright, the cover scrolls up and down: Sunday's tab brings Sunday into view, then pull on past it
+    adb shell input tap 40 $((H*88/100)); sleep 2
     w0=$(monday); adb shell input swipe $((W/2)) $((H*8/10)) $((W/2)) $((H*2/10)) 1200; sleep 0.2; shot "$1-pull"; sleep 2
     turned "$1, pulled past Sunday" "$w0" 7
   else

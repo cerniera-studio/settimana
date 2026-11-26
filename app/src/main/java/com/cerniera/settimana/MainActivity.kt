@@ -92,7 +92,19 @@ class MainActivity : Activity() {
         if (requestCode == ASK) { render(); Thread { runCatching { WeekWidget.refresh(applicationContext) } }.start() }
     }
 
-    override fun onConfigurationChanged(c: Configuration) { super.onConfigurationChanged(c); Kit.follow(this); render() }
+    /** What the page was last drawn for: only a real change of screen, size, density or theme redraws it. */
+    private var drawnFor = ""
+    private fun shapeOf(c: Configuration) = listOf(c.screenWidthDp, c.screenHeightDp, c.smallestScreenWidthDp, c.orientation, c.densityDpi, c.uiMode and Configuration.UI_MODE_NIGHT_MASK).joinToString(",")
+
+    override fun onConfigurationChanged(c: Configuration) {
+        super.onConfigurationChanged(c)
+        val now = shapeOf(c)
+        android.util.Log.i("Settimana", "configuration $drawnFor -> $now")
+        // On the main screen a change that alters nothing here (found 26 Nov on the emulator) arrived
+        // mid-swipe and rebuilt the page, cancelling every swipe on the spreads
+        if (now == drawnFor) return
+        Kit.follow(this); render()
+    }
 
     @Deprecated("Back lowers a sheet first")
     override fun onBackPressed() { sheet?.let { it.dismiss(); sheet = null; return }; @Suppress("DEPRECATION") super.onBackPressed() }
@@ -133,6 +145,7 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
+        drawnFor = shapeOf(resources.configuration)
         window.statusBarColor = Kit.GROUND; window.navigationBarColor = Kit.GROUND
         shownToday = false
         val cfg = resources.configuration
