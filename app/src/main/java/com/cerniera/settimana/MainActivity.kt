@@ -94,14 +94,30 @@ class MainActivity : Activity() {
 
     /** What the page was last drawn for: only a real change of screen, size, density or theme redraws it. */
     private var drawnFor = ""
-    private fun shapeOf(c: Configuration) = listOf(c.screenWidthDp, c.screenHeightDp, c.smallestScreenWidthDp, c.orientation, c.densityDpi, c.uiMode and Configuration.UI_MODE_NIGHT_MASK).joinToString(",")
+    private fun shapeOf(c: Configuration) = listOf(modeNow(), c.densityDpi, c.uiMode and Configuration.UI_MODE_NIGHT_MASK).joinToString(",")
+
+    /** Which arrangement the window calls for: the screen, and upright or turned from the whole window. */
+    private fun modeNow(): WeekView.Mode {
+        val mainScreen = resources.configuration.smallestScreenWidthDp >= 600
+        // Upright or turned from the whole window, bars included: the main screen is nearly square,
+        // so the space left after the status and navigation bars can't tell (found on the emulator)
+        val bounds = windowManager.currentWindowMetrics.bounds
+        val turned = bounds.width() > bounds.height()
+        return when {
+            mainScreen && !turned -> WeekView.Mode.SPREAD_V
+            mainScreen -> WeekView.Mode.SPREAD_H
+            !turned -> WeekView.Mode.COLUMN
+            else -> WeekView.Mode.ROW
+        }
+    }
 
     override fun onConfigurationChanged(c: Configuration) {
         super.onConfigurationChanged(c)
         val now = shapeOf(c)
         android.util.Log.i("Settimana", "configuration $drawnFor -> $now")
-        // On the main screen a change that alters nothing here (found 26 Nov on the emulator) arrived
-        // mid-swipe and rebuilt the page, cancelling every swipe on the spreads
+        // A taskbar showing and hiding changes the space left by 60 dp, over and over (found 26 Nov
+        // on the emulator's main screen). Rebuilding the page for it cancelled every swipe on the
+        // spreads; the page simply relays out to its new size instead.
         if (now == drawnFor) return
         Kit.follow(this); render()
     }
@@ -148,18 +164,7 @@ class MainActivity : Activity() {
         drawnFor = shapeOf(resources.configuration)
         window.statusBarColor = Kit.GROUND; window.navigationBarColor = Kit.GROUND
         shownToday = false
-        val cfg = resources.configuration
-        val mainScreen = cfg.smallestScreenWidthDp >= 600
-        // Upright or turned from the whole window, bars included: the main screen is nearly square,
-        // so the space left after the status and navigation bars can't tell (found on the emulator)
-        val bounds = windowManager.currentWindowMetrics.bounds
-        val turned = bounds.width() > bounds.height()
-        val mode = when {
-            mainScreen && !turned -> WeekView.Mode.SPREAD_V
-            mainScreen -> WeekView.Mode.SPREAD_H
-            !turned -> WeekView.Mode.COLUMN
-            else -> WeekView.Mode.ROW
-        }
+        val mode = modeNow()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setBackgroundColor(Kit.GROUND)
