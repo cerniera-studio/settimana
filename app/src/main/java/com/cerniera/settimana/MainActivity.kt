@@ -114,7 +114,6 @@ class MainActivity : Activity() {
     override fun onConfigurationChanged(c: Configuration) {
         super.onConfigurationChanged(c)
         val now = shapeOf(c)
-        android.util.Log.i("Settimana", "configuration $drawnFor -> $now")
         // A taskbar showing and hiding changes the space left by 60 dp, over and over (found 26 Nov
         // on the emulator's main screen). Rebuilding the page for it cancelled every swipe on the
         // spreads; the page simply relays out to its new size instead.
