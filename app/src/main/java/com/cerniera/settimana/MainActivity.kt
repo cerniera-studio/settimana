@@ -268,11 +268,11 @@ class MainActivity : Activity() {
                     else -> "Each day's knots in its margin; overdue ones gather on today"
                 }, endValue(if (knotsOk) "On" else "Off", if (knotsOk) Kit.GOOD else Kit.MUTED)))
             })
-            sh.body.addView(text("Tap an event to see it, or a knot to open it in Nodo. Hold a day's open space for a new event. Drag the spread sideways, or use the arrows, for the weeks either side.",
+            sh.body.addView(text("Tap an event to see it, or a knot to open it in Nodo. Hold a day's open space for a new event. Swipe the page sideways, or pull on past Sunday or Monday, for the weeks either side. The arrows do the same.",
                 13f, Kit.MUTED), LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(12) })
             sh.body.addView(doctrineCard(listOf(
                 "Membrane" to "The seven days share one sheet: a full Thursday takes height from an empty Saturday.",
-                "Concentrato" to "Drag the week sideways and the words fall away, leaving each day's busy time as bars. They return when it settles.",
+                "Concentrato" to "Drag the week to turn it and the words fall away, leaving each day's busy time as bars. They return when it settles.",
                 "Giulietta" to "No add button and no settings on the page: hold a day's space for a new event; tap the week's name for this sheet.",
                 "The fold" to "Open, the crease is the diary's binding: Monday to Wednesday on one page, Thursday to Sunday on the other. Folded, the days run down the cover with tabs in the hinge-side edge.",
             )), LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(14); bottomMargin = px(16) })
@@ -286,7 +286,7 @@ class MainActivity : Activity() {
                 if (v.height <= 0 || v.days.isEmpty()) return
                 val o = IntArray(2).also { v.getLocationInWindow(it) }
                 val r = IntArray(2).also { root.getLocationInWindow(it) }
-                val json = "{\"mode\": \"$mode\", \"rotation\": ${display?.rotation ?: 0}, \"root\": [${r[0]}, ${r[1]}, ${r[0] + root.width}, ${r[1] + root.height}], " +
+                val json = "{\"mode\": \"$mode\", \"monday\": \"${v.days.first().date}\", \"rotation\": ${display?.rotation ?: 0}, \"root\": [${r[0]}, ${r[1]}, ${r[0] + root.width}, ${r[1] + root.height}], " +
                     "\"view\": [${o[0]}, ${o[1]}, ${o[0] + v.width}, ${o[1] + v.height}], \"crease\": ${v.crease}, \"days\": ${v.report()}}"
                 runCatching { java.io.File(filesDir, "layout.json").writeText(json) }
             }
