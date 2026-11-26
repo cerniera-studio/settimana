@@ -33,15 +33,21 @@ import kotlin.math.min
  *   the hinge-side edge.
  * - [Mode.ROW], cover turned: three days side by side, scrolling sideways.
  *
- * Concentrato: drag the spread sideways to turn the week and the words fall away, leaving each
- * day's events as bars of busy time, so a week reads as density. They return when it settles.
+ * Concentrato: drag the page to turn the week and the words fall away, leaving each day's events
+ * as bars of busy time, so a week reads as density. They return when it settles. Every shape
+ * turns by touch, up, down, left or right (see Touch).
  * Giulietta: no buttons on the page. Tap an event or a knot; hold a day's open space for a new event.
  */
 @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
 class WeekView(ctx: Context) : View(ctx) {
     enum class Mode { SPREAD_V, SPREAD_H, COLUMN, ROW }
 
-    var days: List<Week.Day> = emptyList(); set(v) { field = v; relayout() }
+    var days: List<Week.Day> = emptyList()
+        set(v) {
+            val newWeek = v.firstOrNull()?.date != field.firstOrNull()?.date
+            field = v; relayout()
+            if (newWeek && landEnd) { landEnd = false; scroll = maxScroll(); invalidate() }
+        }
     var today: LocalDate = LocalDate.now()
     var zone: ZoneId = ZoneId.systemDefault()
     var mode = Mode.COLUMN; set(v) { field = v; relayout() }
@@ -63,8 +69,6 @@ class WeekView(ctx: Context) : View(ctx) {
     private var contentLen = 0f
     private val scroller = OverScroller(ctx)
     private var scroll = 0f
-    /** The spread's sideways offset while it is dragged, for turning the week. */
-    private var drag = 0f
     /** Concentrato, 0 at rest to 1 mid-drag. */
     private var calm = 0f
     private val hits = mutableListOf<Pair<RectF, Any>>()
@@ -153,9 +157,50 @@ class WeekView(ctx: Context) : View(ctx) {
     }
 
     // ---- Touch ----------------------------------------------------------------------------------
+    //
+    // Turning the week (26 Nov 2026: on the cover only the arrows turned it). Every shape now turns
+    // by touch, up, down, left or right:
+    // - across the way the page scrolls (sideways on the upright cover and the spreads, up and down
+    //   on the turned cover), the page follows the finger and a firm swipe or a fling turns the week;
+    // - along the way it scrolls, pulling on past Sunday turns to the week after, and past Monday to
+    //   the week before. Only when the gesture starts at that end, so a long scroll to Sunday never
+    //   turns the week by accident; the page gives with resistance and a caption names the week.
+    // The first few dp of a gesture settle its axis, so a slightly diagonal scroll stays a scroll.
+
+    private enum class Axis { X, Y }
+    /** The gesture's axis, settled on its first move; null until then. */
+    private var axis: Axis? = null
+    /** The page's offset while it is dragged or pulled to turn the week. */
+    private var dragX = 0f
+    private var dragY = 0f
+    private var atStart = false
+    private var atEnd = false
+    private var turning = false
+    /** Past the point of turning, for one tick of feedback as it is crossed. */
+    private var armed = false
+    /** After turning back along the scroll, the new week opens on its Sunday rather than its Monday. */
+    private var landEnd = false
+
+    /** The axis the page scrolls along, or null for the spreads, which don't scroll. */
+    private fun scrollAxis() = when (mode) { Mode.COLUMN -> Axis.Y; Mode.ROW -> Axis.X; else -> null }
+    private fun offset(a: Axis) = if (a == Axis.X) dragX else dragY
+    private fun setOffset(a: Axis, v: Float) { if (a == Axis.X) dragX = v else dragY = v }
+    private fun span(a: Axis) = (if (a == Axis.X) width else height).toFloat()
+    /** How far to drag before the week turns: shorter for an edge pull, which already resists. */
+    private fun threshold(a: Axis) = if (a == scrollAxis()) dp(84) else span(a) * 0.2f
+
+    private fun easeCalm() {
+        val a = axis ?: return
+        calm = (abs(offset(a)) / (span(a) * 0.18f)).coerceIn(0f, 1f)
+    }
 
     private val gestures = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
-        override fun onDown(e: MotionEvent): Boolean { scroller.forceFinished(true); return true }
+        override fun onDown(e: MotionEvent): Boolean {
+            scroller.forceFinished(true)
+            axis = null; armed = false
+            atStart = scroll <= 0.5f; atEnd = scroll >= maxScroll() - 0.5f
+            return true
+        }
 
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             if (mode == Mode.COLUMN && e.x < dp(40)) { tabAt(e.y)?.let { show(it); performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }; return true }
@@ -174,24 +219,48 @@ class WeekView(ctx: Context) : View(ctx) {
         }
 
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
-            when (mode) {
-                Mode.COLUMN -> { scroll = (scroll + dy).coerceIn(0f, maxScroll()); invalidate() }
-                Mode.ROW -> { scroll = (scroll + dx).coerceIn(0f, maxScroll()); invalidate() }
-                else -> {
-                    drag -= dx
-                    calm = (abs(drag) / (width * 0.18f)).coerceIn(0f, 1f)
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                    invalidate()
-                }
+            if (turning) return true
+            val a = axis ?: run {
+                val tx = abs(e2.x - (e1?.x ?: e2.x)); val ty = abs(e2.y - (e1?.y ?: e2.y))
+                (if (tx > ty) Axis.X else Axis.Y).also { axis = it }
             }
+            val d = if (a == Axis.X) dx else dy
+            val off = offset(a)
+            if (a == scrollAxis()) {
+                // Along the scroll: scroll, unless pulling on past an end the gesture began at
+                val pullOn = off != 0f || (d > 0 && atEnd && scroll >= maxScroll() - 0.5f) || (d < 0 && atStart && scroll <= 0.5f)
+                if (pullOn) {
+                    var n = off - d * 0.5f
+                    if ((off < 0 && n > 0) || (off > 0 && n < 0)) n = 0f // back to rest; the page doesn't pull the other way
+                    setOffset(a, n)
+                } else scroll = (scroll + d).coerceIn(0f, maxScroll())
+            } else {
+                // Across the scroll (or anywhere on the spreads): the page follows the finger
+                setOffset(a, off - d)
+            }
+            if (offset(a) != 0f) parent?.requestDisallowInterceptTouchEvent(true)
+            val past = abs(offset(a)) > threshold(a)
+            if (past != armed) { armed = past; if (past) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+            easeCalm()
+            invalidate()
             return true
         }
 
         override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+            if (turning) return true
+            val a = axis ?: return true
+            val v = if (a == Axis.X) vx else vy
+            val other = if (a == Axis.X) vy else vx
+            if (a != scrollAxis()) {
+                // A firm swipe across turns the week, however short the drag
+                if (abs(v) > dp(900) && abs(v) > abs(other)) { turn(if (v < 0) 1 else -1, a); return true }
+                return true
+            }
+            if (offset(a) != 0f) return true // pulling past an end: lifting decides
             when (mode) {
                 Mode.COLUMN -> scroller.fling(0, scroll.toInt(), 0, -vy.toInt(), 0, 0, 0, maxScroll().toInt())
                 Mode.ROW -> scroller.fling(scroll.toInt(), 0, -vx.toInt(), 0, 0, maxScroll().toInt(), 0, 0)
-                else -> if (abs(vx) > dp(900) && abs(vx) > abs(vy)) { turn(if (vx < 0) 1 else -1); return true }
+                else -> {}
             }
             postInvalidateOnAnimation()
             return true
@@ -199,9 +268,9 @@ class WeekView(ctx: Context) : View(ctx) {
     })
 
     private fun content(x: Float, y: Float) = when (mode) {
-        Mode.COLUMN -> x to y + scroll
-        Mode.ROW -> x + scroll to y
-        else -> x - drag to y
+        Mode.COLUMN -> x - dragX to y + scroll - dragY
+        Mode.ROW -> x + scroll - dragX to y - dragY
+        else -> x - dragX to y - dragY
     }
 
     private fun tabAt(y: Float): Int? {
@@ -211,32 +280,43 @@ class WeekView(ctx: Context) : View(ctx) {
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         val r = gestures.onTouchEvent(e)
-        if ((e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) && drag != 0f) {
-            if (abs(drag) > width * 0.22f) turn(if (drag < 0) 1 else -1) else settle()
+        if (!turning && (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL)) {
+            val a = axis
+            if (a != null && offset(a) != 0f) {
+                val off = offset(a)
+                if (e.actionMasked == MotionEvent.ACTION_UP && abs(off) > threshold(a)) turn(if (off < 0) 1 else -1, a) else settle(a)
+            }
         }
         return r || super.onTouchEvent(e)
     }
 
-    private fun turn(dir: Int) {
-        val out = if (dir > 0) -width.toFloat() else width.toFloat()
-        ValueAnimator.ofFloat(drag, out).apply {
+    /** Turns to the week before (-1) or after (+1), sliding the page out along [a]. */
+    private fun turn(dir: Int, a: Axis) {
+        android.util.Log.i("Settimana", "view turn $dir along $a from ${offset(a)}")
+        turning = true
+        val out = if (dir > 0) -span(a) else span(a)
+        ValueAnimator.ofFloat(offset(a), out).apply {
             duration = Kit.SETTLE; interpolator = Kit.ease
-            addUpdateListener { drag = it.animatedValue as Float; calm = 1f; invalidate() }
+            addUpdateListener { setOffset(a, it.animatedValue as Float); calm = 1f; invalidate() }
             addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(a: android.animation.Animator) {
+                override fun onAnimationEnd(an: android.animation.Animator) {
                     performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    // Pulled back past Monday, the week before opens on its Sunday; otherwise on its Monday
+                    landEnd = dir < 0 && a == scrollAxis()
+                    scroll = if (landEnd) maxScroll() else 0f
+                    turning = false
                     onTurn(dir)
-                    drag = -out * 0.35f; settle()
+                    setOffset(a, -out * 0.35f); settle(a)
                 }
             })
             start()
         }
     }
 
-    private fun settle() {
-        ValueAnimator.ofFloat(drag, 0f).apply {
+    private fun settle(a: Axis) {
+        ValueAnimator.ofFloat(offset(a), 0f).apply {
             duration = Kit.GLIDE; interpolator = Kit.ease
-            addUpdateListener { drag = it.animatedValue as Float; calm = (abs(drag) / (width * 0.18f)).coerceIn(0f, 1f); invalidate() }
+            addUpdateListener { setOffset(a, it.animatedValue as Float); calm = (abs(offset(a)) / (span(a) * 0.18f)).coerceIn(0f, 1f); invalidate() }
             start()
         }
     }
@@ -255,12 +335,13 @@ class WeekView(ctx: Context) : View(ctx) {
         if (blocks.isEmpty()) return
         c.save()
         when (mode) {
-            Mode.COLUMN -> c.translate(0f, -scroll)
-            Mode.ROW -> c.translate(-scroll, 0f)
-            else -> c.translate(drag, 0f)
+            Mode.COLUMN -> c.translate(dragX, dragY - scroll)
+            Mode.ROW -> c.translate(dragX - scroll, dragY)
+            else -> c.translate(dragX, dragY)
         }
         blocks.forEach { drawDay(c, days[it.day], it.r) }
         c.restore()
+        drawTurnCaption(c)
         if (mode == Mode.COLUMN) drawTabs(c)
         // The crease, as the diary's binding: a hairline down (or across) the middle
         if (gutter > 0) {
@@ -269,6 +350,33 @@ class WeekView(ctx: Context) : View(ctx) {
             if (mode == Mode.SPREAD_V) c.drawRect(cx - dp(0.5f), dp(18), cx + dp(0.5f), height - dp(18), p)
             else if (mode == Mode.SPREAD_H) c.drawRect(dp(18), cx - dp(0.5f), width - dp(18), cx + dp(0.5f), p)
         }
+    }
+
+    /** While the page is dragged or pulled, the week it will turn to, in the space it uncovers. */
+    private fun drawTurnCaption(c: Canvas) {
+        val a = axis ?: return
+        val off = offset(a)
+        if (turning || abs(off) < dp(8) || days.isEmpty()) return
+        val dir = if (off < 0) 1 else -1
+        val ready = abs(off) > threshold(a)
+        val alpha = (abs(off) / threshold(a)).coerceIn(0f, 1f)
+        val label = (if (dir > 0) "Next week" else "Week before") + " · " + Week.title(days[0].date.plusWeeks(dir.toLong()))
+        tp.typeface = Kit.sans(context, 600); tp.textSize = dp(11); tp.letterSpacing = 0.14f
+        tp.color = withAlpha(if (ready) Kit.CHAMPAGNE else Kit.MUTED, alpha)
+        if (a == Axis.Y) {
+            // In the band uncovered above or below the page
+            tp.textAlign = Paint.Align.CENTER
+            val y = if (off < 0) height + off / 2f + dp(4) else off / 2f + dp(4)
+            c.drawText(label.uppercase(), width / 2f, y, tp)
+        } else {
+            // Turned on its side in the strip uncovered at the left or right
+            tp.textAlign = Paint.Align.CENTER
+            val x = if (off < 0) width + off / 2f else off / 2f
+            c.save(); c.rotate(if (off < 0) 90f else -90f, x, height / 2f)
+            c.drawText(label.uppercase(), x, height / 2f + dp(4), tp)
+            c.restore()
+        }
+        tp.letterSpacing = 0f; tp.textAlign = Paint.Align.LEFT
     }
 
     private fun drawTabs(c: Canvas) {

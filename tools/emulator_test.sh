@@ -32,6 +32,18 @@ print(("::error::" if bad else "::notice::") + f"{name} ({d['mode']}): " + ("; "
 PY
 }
 
+monday() { adb shell run-as $PKG cat files/layout.json 2>/dev/null | python3 -c 'import sys, json; print(json.load(sys.stdin).get("monday", ""))' 2>/dev/null; }
+
+turned() {  # name monday-before days-expected
+  python3 - "$1" "$2" "$(monday)" "$3" <<'PY' | tee -a shapes.txt
+import sys, datetime
+name, a, b, want = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+try: moved = (datetime.date.fromisoformat(b) - datetime.date.fromisoformat(a)).days
+except Exception: print(f"::error::{name}: no week recorded ({a!r} to {b!r})"); sys.exit(0)
+print(("::notice::" if moved == want else "::error::") + f"Turn, {name}: week of {a} to week of {b} (wanted {want:+d} days)")
+PY
+}
+
 walk() {  # name WxH dpi rotation
   adb shell wm density "$3"; adb shell wm size "$2"; adb shell settings put system user_rotation "$4"; sleep 3
   adb shell run-as $PKG rm -f files/layout.json
@@ -39,9 +51,34 @@ walk() {  # name WxH dpi rotation
   shot "$1-week"; check "Week, $1"
   # Concentrato: halfway through a sideways drag, the words give way to bars (spreads only)
   W=${2%x*}; H=${2#*x}; [ "$4" = 1 ] && { t=$W; W=$H; H=$t; }
+  w0=$(monday)
   adb shell input swipe $((W*7/10)) $((H/2)) $((W*3/10)) $((H/2)) 900 &
   sleep 0.7; shot "$1-dragging"; wait; sleep 2
   shot "$1-next-week"
+  if [ "$1" = cover-landscape ]; then
+    # Turned, the cover scrolls sideways: sideways moves through the days, and pulling on past
+    # Sunday turns the week. Up and down turn it straight away.
+    for i in 1 2 3; do adb shell input swipe $((W*8/10)) $((H/2)) $((W*2/10)) $((H/2)) 120; done; sleep 2
+    w0=$(monday); adb shell input swipe $((W*8/10)) $((H/2)) $((W*2/10)) $((H/2)) 1200; sleep 0.2; shot "$1-pull"; sleep 2
+    turned "$1, pulled past Sunday" "$w0" 7
+  else
+    turned "$1, swiped left" "$w0" 7
+    w0=$(monday); adb shell input swipe $((W*3/10)) $((H/2)) $((W*8/10)) $((H/2)) 250; sleep 2
+    turned "$1, swiped right" "$w0" -7
+  fi
+  if [ "$1" = cover-portrait ]; then
+    # Upright, the cover scrolls up and down: Sunday's tab brings Sunday into view, then pull on past it
+    adb shell input tap 40 $((H*88/100)); sleep 2
+    w0=$(monday); adb shell input swipe $((W/2)) $((H*8/10)) $((W/2)) $((H*2/10)) 1200; sleep 0.2; shot "$1-pull"; sleep 2
+    turned "$1, pulled past Sunday" "$w0" 7
+  else
+    w0=$(monday); adb shell input swipe $((W/2)) $((H*8/10)) $((W/2)) $((H*2/10)) 250; sleep 2
+    turned "$1, swiped up" "$w0" 7
+    w0=$(monday); adb shell input swipe $((W/2)) $((H*2/10)) $((W/2)) $((H*8/10)) 250; sleep 2
+    turned "$1, swiped down" "$w0" -7
+  fi
+  adb logcat -d -s Settimana:I | tail -40
+  adb logcat -c
   adb shell am force-stop $PKG
 }
 

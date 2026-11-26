@@ -92,7 +92,34 @@ class MainActivity : Activity() {
         if (requestCode == ASK) { render(); Thread { runCatching { WeekWidget.refresh(applicationContext) } }.start() }
     }
 
-    override fun onConfigurationChanged(c: Configuration) { super.onConfigurationChanged(c); Kit.follow(this); render() }
+    /** What the page was last drawn for: only a real change of screen, size, density or theme redraws it. */
+    private var drawnFor = ""
+    private fun shapeOf(c: Configuration) = listOf(modeNow(), c.densityDpi, c.uiMode and Configuration.UI_MODE_NIGHT_MASK).joinToString(",")
+
+    /** Which arrangement the window calls for: the screen, and upright or turned from the whole window. */
+    private fun modeNow(): WeekView.Mode {
+        val mainScreen = resources.configuration.smallestScreenWidthDp >= 600
+        // Upright or turned from the whole window, bars included: the main screen is nearly square,
+        // so the space left after the status and navigation bars can't tell (found on the emulator)
+        val bounds = windowManager.currentWindowMetrics.bounds
+        val turned = bounds.width() > bounds.height()
+        return when {
+            mainScreen && !turned -> WeekView.Mode.SPREAD_V
+            mainScreen -> WeekView.Mode.SPREAD_H
+            !turned -> WeekView.Mode.COLUMN
+            else -> WeekView.Mode.ROW
+        }
+    }
+
+    override fun onConfigurationChanged(c: Configuration) {
+        super.onConfigurationChanged(c)
+        val now = shapeOf(c)
+        // A taskbar showing and hiding changes the space left by 60 dp, over and over (found 26 Nov
+        // on the emulator's main screen). Rebuilding the page for it cancelled every swipe on the
+        // spreads; the page simply relays out to its new size instead.
+        if (now == drawnFor) return
+        Kit.follow(this); render()
+    }
 
     @Deprecated("Back lowers a sheet first")
     override fun onBackPressed() { sheet?.let { it.dismiss(); sheet = null; return }; @Suppress("DEPRECATION") super.onBackPressed() }
@@ -105,7 +132,7 @@ class MainActivity : Activity() {
         Thread {
             val (events, knots) = if (demo) Sources.demo(m, z) else Sources.events(this, m, z) to Sources.knots(this, m, z)
             val days = Week.days(m, events, knots, LocalDate.now(z), z)
-            main.post { if (m == monday) week?.let { it.today = LocalDate.now(z); it.zone = z; it.days = days; firstShow(it) } }
+            main.post { if (m == monday) week?.let { it.today = LocalDate.now(z); it.zone = z; it.days = days; firstShow(it); recordNow?.invoke() } }
         }.start()
     }
 
@@ -119,7 +146,7 @@ class MainActivity : Activity() {
         if (i in 0..6 && (v.mode == WeekView.Mode.COLUMN || v.mode == WeekView.Mode.ROW)) v.post { v.show(i, animate = false) }
     }
 
-    private fun turn(dir: Int) { monday = monday.plusWeeks(dir.toLong()); shownToday = false; updateHead(); load() }
+    private fun turn(dir: Int) { android.util.Log.i("Settimana", "turn $dir from $monday"); monday = monday.plusWeeks(dir.toLong()); shownToday = false; updateHead(); load() }
 
     private var headTitle: android.widget.TextView? = null
     private var headSub: android.widget.TextView? = null
@@ -133,20 +160,10 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
+        drawnFor = shapeOf(resources.configuration)
         window.statusBarColor = Kit.GROUND; window.navigationBarColor = Kit.GROUND
         shownToday = false
-        val cfg = resources.configuration
-        val mainScreen = cfg.smallestScreenWidthDp >= 600
-        // Upright or turned from the whole window, bars included: the main screen is nearly square,
-        // so the space left after the status and navigation bars can't tell (found on the emulator)
-        val bounds = windowManager.currentWindowMetrics.bounds
-        val turned = bounds.width() > bounds.height()
-        val mode = when {
-            mainScreen && !turned -> WeekView.Mode.SPREAD_V
-            mainScreen -> WeekView.Mode.SPREAD_H
-            !turned -> WeekView.Mode.COLUMN
-            else -> WeekView.Mode.ROW
-        }
+        val mode = modeNow()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setBackgroundColor(Kit.GROUND)
@@ -268,11 +285,11 @@ class MainActivity : Activity() {
                     else -> "Each day's knots in its margin; overdue ones gather on today"
                 }, endValue(if (knotsOk) "On" else "Off", if (knotsOk) Kit.GOOD else Kit.MUTED)))
             })
-            sh.body.addView(text("Tap an event to see it, or a knot to open it in Nodo. Hold a day's open space for a new event. Drag the spread sideways, or use the arrows, for the weeks either side.",
+            sh.body.addView(text("Tap an event to see it, or a knot to open it in Nodo. Hold a day's open space for a new event. Swipe the page sideways, or pull on past Sunday or Monday, for the weeks either side. The arrows do the same.",
                 13f, Kit.MUTED), LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(12) })
             sh.body.addView(doctrineCard(listOf(
                 "Membrane" to "The seven days share one sheet: a full Thursday takes height from an empty Saturday.",
-                "Concentrato" to "Drag the week sideways and the words fall away, leaving each day's busy time as bars. They return when it settles.",
+                "Concentrato" to "Drag the week to turn it and the words fall away, leaving each day's busy time as bars. They return when it settles.",
                 "Giulietta" to "No add button and no settings on the page: hold a day's space for a new event; tap the week's name for this sheet.",
                 "The fold" to "Open, the crease is the diary's binding: Monday to Wednesday on one page, Thursday to Sunday on the other. Folded, the days run down the cover with tabs in the hinge-side edge.",
             )), LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(14); bottomMargin = px(16) })
@@ -281,16 +298,24 @@ class MainActivity : Activity() {
 
     /** Where the head and the days landed, for the four-shape check (files/layout.json). */
     private fun record(root: View, v: WeekView, mode: WeekView.Mode) {
+        // Written on every layout and whenever a week's days arrive, so a turn is never read late
+        recordNow = { write(root, v, mode) }
         root.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
+            override fun onGlobalLayout() { write(root, v, mode) }
+        })
+    }
+
+    private var recordNow: (() -> Unit)? = null
+
+    private fun write(root: View, v: WeekView, mode: WeekView.Mode) {
+            run {
                 if (v.height <= 0 || v.days.isEmpty()) return
                 val o = IntArray(2).also { v.getLocationInWindow(it) }
                 val r = IntArray(2).also { root.getLocationInWindow(it) }
-                val json = "{\"mode\": \"$mode\", \"rotation\": ${display?.rotation ?: 0}, \"root\": [${r[0]}, ${r[1]}, ${r[0] + root.width}, ${r[1] + root.height}], " +
+                val json = "{\"mode\": \"$mode\", \"monday\": \"${v.days.first().date}\", \"rotation\": ${display?.rotation ?: 0}, \"root\": [${r[0]}, ${r[1]}, ${r[0] + root.width}, ${r[1] + root.height}], " +
                     "\"view\": [${o[0]}, ${o[1]}, ${o[0] + v.width}, ${o[1] + v.height}], \"crease\": ${v.crease}, \"days\": ${v.report()}}"
                 runCatching { java.io.File(filesDir, "layout.json").writeText(json) }
             }
-        })
     }
 
     companion object { private const val ASK = 21 }
