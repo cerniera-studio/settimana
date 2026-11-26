@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The widget is one picture drawn by Settimana at the widget's own size, with a tap area over each day -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/frame"
+    android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
     <ImageView
