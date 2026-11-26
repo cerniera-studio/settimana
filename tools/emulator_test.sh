@@ -77,6 +77,8 @@ walk() {  # name WxH dpi rotation
     w0=$(monday); adb shell input swipe $((W/2)) $((H*2/10)) $((W/2)) $((H*8/10)) 250; sleep 2
     turned "$1, swiped down" "$w0" -7
   fi
+  adb logcat -d -s Settimana:I | tail -40
+  adb logcat -c
   adb shell am force-stop $PKG
 }
 

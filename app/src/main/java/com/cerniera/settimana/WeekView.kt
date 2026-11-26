@@ -282,6 +282,7 @@ class WeekView(ctx: Context) : View(ctx) {
         val r = gestures.onTouchEvent(e)
         if (!turning && (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL)) {
             val a = axis
+            android.util.Log.i("Settimana", "lift ${e.actionMasked} mode=$mode axis=$a dx=$dragX dy=$dragY scroll=$scroll w=$width h=$height")
             if (a != null && offset(a) != 0f) {
                 val off = offset(a)
                 if (e.actionMasked == MotionEvent.ACTION_UP && abs(off) > threshold(a)) turn(if (off < 0) 1 else -1, a) else settle(a)
@@ -292,6 +293,7 @@ class WeekView(ctx: Context) : View(ctx) {
 
     /** Turns to the week before (-1) or after (+1), sliding the page out along [a]. */
     private fun turn(dir: Int, a: Axis) {
+        android.util.Log.i("Settimana", "view turn $dir along $a from ${offset(a)}")
         turning = true
         val out = if (dir > 0) -span(a) else span(a)
         ValueAnimator.ofFloat(offset(a), out).apply {

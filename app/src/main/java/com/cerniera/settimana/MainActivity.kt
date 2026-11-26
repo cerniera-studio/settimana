@@ -105,7 +105,7 @@ class MainActivity : Activity() {
         Thread {
             val (events, knots) = if (demo) Sources.demo(m, z) else Sources.events(this, m, z) to Sources.knots(this, m, z)
             val days = Week.days(m, events, knots, LocalDate.now(z), z)
-            main.post { if (m == monday) week?.let { it.today = LocalDate.now(z); it.zone = z; it.days = days; firstShow(it) } }
+            main.post { if (m == monday) week?.let { it.today = LocalDate.now(z); it.zone = z; it.days = days; firstShow(it); recordNow?.invoke() } }
         }.start()
     }
 
@@ -119,7 +119,7 @@ class MainActivity : Activity() {
         if (i in 0..6 && (v.mode == WeekView.Mode.COLUMN || v.mode == WeekView.Mode.ROW)) v.post { v.show(i, animate = false) }
     }
 
-    private fun turn(dir: Int) { monday = monday.plusWeeks(dir.toLong()); shownToday = false; updateHead(); load() }
+    private fun turn(dir: Int) { android.util.Log.i("Settimana", "turn $dir from $monday"); monday = monday.plusWeeks(dir.toLong()); shownToday = false; updateHead(); load() }
 
     private var headTitle: android.widget.TextView? = null
     private var headSub: android.widget.TextView? = null
@@ -281,8 +281,17 @@ class MainActivity : Activity() {
 
     /** Where the head and the days landed, for the four-shape check (files/layout.json). */
     private fun record(root: View, v: WeekView, mode: WeekView.Mode) {
+        // Written on every layout and whenever a week's days arrive, so a turn is never read late
+        recordNow = { write(root, v, mode) }
         root.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
+            override fun onGlobalLayout() { write(root, v, mode) }
+        })
+    }
+
+    private var recordNow: (() -> Unit)? = null
+
+    private fun write(root: View, v: WeekView, mode: WeekView.Mode) {
+            run {
                 if (v.height <= 0 || v.days.isEmpty()) return
                 val o = IntArray(2).also { v.getLocationInWindow(it) }
                 val r = IntArray(2).also { root.getLocationInWindow(it) }
@@ -290,7 +299,6 @@ class MainActivity : Activity() {
                     "\"view\": [${o[0]}, ${o[1]}, ${o[0] + v.width}, ${o[1] + v.height}], \"crease\": ${v.crease}, \"days\": ${v.report()}}"
                 runCatching { java.io.File(filesDir, "layout.json").writeText(json) }
             }
-        })
     }
 
     companion object { private const val ASK = 21 }
