@@ -21,6 +21,7 @@ import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import com.cerniera.kit.Backdrop
+import com.cerniera.kit.Family
 import com.cerniera.kit.Finish
 import com.cerniera.kit.Ground
 import com.cerniera.kit.Surface
@@ -88,6 +89,8 @@ class WeekWidget : AppWidgetProvider() {
             val portrait = screen.y >= screen.x
             // RemoteViews carry at most about 1.5 screens of bitmap: kept well inside it
             val budget = screen.x.toLong() * screen.y * 4 * 3 / 2 * 85 / 100
+            // Where Fold Widgets' live mode last saw these widgets (26 Nov 2026), then the family look
+            Family.seats(c, store(c), ids) { sizes(m.getAppWidgetOptions(it)) }
             val look = look(c)
             ids.forEach { id ->
                 val list = sizes(m.getAppWidgetOptions(id))
@@ -110,7 +113,7 @@ class WeekWidget : AppWidgetProvider() {
                     spent += bw.toLong() * bh * 4
                     // The picture's own dp, from its pixels (the tap-measured size may differ a little from the report)
                     val dd = d * f
-                    val ground = if (isNow) Backdrop.ground(c, store(c), id) else Backdrop.flatGround(c)
+                    val ground = if (isNow) Family.ground(c, store(c), id) else Backdrop.flatGround(c)
                     val (bmp, drawn) = picture(c, bw, bh, dd, look.first, look.second, ground, snap)
                     map[s] = views(c, id, index, s, bmp, drawn, bw / dd, bh / dd, snap.monday)
                 }
@@ -142,7 +145,7 @@ class WeekWidget : AppWidgetProvider() {
                 setImageViewBitmap(R.id.picture, bmp)
                 setContentDescription(R.id.picture, drawn.spoken)
                 // The whole widget: Settimana at this week; its bounds measure the widget (Backdrop.record)
-                setOnClickPendingIntent(R.id.frame, PendingIntent.getActivity(c, id * 64 + index * 8 + 7,
+                setOnClickPendingIntent(R.id.root, PendingIntent.getActivity(c, id * 64 + index * 8 + 7,
                     Intent(c, MainActivity::class.java).putExtra(EXTRA_ID, id).putExtra("rw", size.width).putExtra("rh", size.height)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
@@ -192,13 +195,14 @@ class WeekWidget : AppWidgetProvider() {
                 Thread { runCatching { refresh(c.applicationContext) } }.start()
         }
 
-        /** Fold Widgets' finish and corners when it is installed; otherwise Vetro at radius 24 (as Riserva). */
-        fun look(c: Context): Pair<Finish, Float> = runCatching {
-            c.contentResolver.query(Uri.parse("content://com.fergusonconsultancy.foldwidgets.look/look"), null, null, null, null)?.use { cur ->
-                if (!cur.moveToFirst()) null
-                else Finish.valueOf(cur.getString(cur.getColumnIndexOrThrow("finish"))) to cur.getInt(cur.getColumnIndexOrThrow("radius")).toFloat()
-            }
-        }.getOrNull() ?: (Finish.VETRO to 24f)
+        /**
+         * Fold Widgets' finish and corners, and the picture behind its glass, through the Kit's Family
+         * (26 Nov 2026), the one code every Cerniera widget uses. Until then Fold Widgets never told
+         * Settimana when the finish changed (its list of followers stopped at Riserva), so the week
+         * kept whatever finish it last drew; and with no place from live mode (its picture's view is
+         * now named root, as live mode looks for) its glass read a different ground from its neighbours.
+         */
+        fun look(c: Context): Pair<Finish, Float> = Family.look(c, store(c)).let { it.finish to it.radius.toFloat() }
 
         /** When the picture next goes stale: an event this week starting or ending, or midnight. */
         fun nextBoundary(snap: WeekFace.Snap): Long {
