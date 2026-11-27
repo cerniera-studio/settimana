@@ -87,12 +87,15 @@ class WeekWidget : AppWidgetProvider() {
             val d = Backdrop.density(c)
             val screen = Backdrop.screenSize(c)
             val portrait = screen.y >= screen.x
-            // RemoteViews carry at most about 1.5 screens of bitmap: kept well inside it
-            val budget = screen.x.toLong() * screen.y * 4 * 3 / 2 * 85 / 100
             // Where Fold Widgets' live mode last saw these widgets (26 Nov 2026), then the family look
             Family.seats(c, store(c), ids) { sizes(m.getAppWidgetOptions(it)) }
             val look = look(c)
             ids.forEach { id ->
+              // Sent through the Kit's WidgetBudget (27 Nov 2026): within Android's real cap, and a refusal
+              // is redrawn smaller rather than leaving the week on its last picture
+              com.cerniera.kit.WidgetBudget.send(c, m, id) {
+                val budget = com.cerniera.kit.WidgetBudget.bytes(c)
+                val shrink = Math.sqrt(com.cerniera.kit.WidgetBudget.scale(c).toDouble()).toFloat()
                 val list = sizes(m.getAppWidgetOptions(id))
                 // The size in use now first, at full resolution, so it is never the one that gives way
                 val now = if (portrait) list.minBy { it.width / it.height } else list.maxBy { it.width / it.height }
@@ -108,17 +111,19 @@ class WeekWidget : AppWidgetProvider() {
                         px = Math.round(seat.width); py = Math.round(seat.height)
                     }
                     val want = px.toLong() * py * 4
-                    val f = if (!isNow && spent + want > budget) Math.sqrt((budget - spent).coerceAtLeast(budget / 6).toDouble() / want).toFloat() else 1f
+                    val f = shrink * (if (!isNow && spent + want > budget) Math.sqrt((budget - spent).coerceAtLeast(budget / 6).toDouble() / want).toFloat() else 1f)
                     val bw = Math.round(px * f).coerceAtLeast(40); val bh = Math.round(py * f).coerceAtLeast(30)
                     spent += bw.toLong() * bh * 4
                     // The picture's own dp, from its pixels (the tap-measured size may differ a little from the report)
                     val dd = d * f
-                    val ground = if (isNow) Family.ground(c, store(c), id) else Backdrop.flatGround(c)
+                    // Every picture on the family's ground (27 Nov 2026): if the launcher shows the one drawn
+                    // for the other orientation, a solid finish is still the same tone as its neighbours
+                    val ground = Family.ground(c, store(c), id)
                     val (bmp, drawn) = picture(c, bw, bh, dd, look.first, look.second, ground, snap)
                     map[s] = views(c, id, index, s, bmp, drawn, bw / dd, bh / dd, snap.monday)
                 }
-                runCatching { m.updateAppWidget(id, if (map.size == 1) map.values.first() else RemoteViews(map)) }
-                    .onFailure { android.util.Log.w("Settimana", "widget $id not drawn", it) }
+                if (map.size == 1) map.values.first() else RemoteViews(map)
+              }
             }
             alarm(c, nextBoundary(snap))
         }
