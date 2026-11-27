@@ -99,7 +99,7 @@ class WeekWidget : AppWidgetProvider() {
                 val list = sizes(m.getAppWidgetOptions(id))
                 // The size in use now first, at full resolution, so it is never the one that gives way
                 val now = if (portrait) list.minBy { it.width / it.height } else list.maxBy { it.width / it.height }
-                val seat = Backdrop.seat(store(c), id)
+                val seat = Backdrop.seat(c, store(c), id)
                 val map = LinkedHashMap<SizeF, RemoteViews>()
                 var spent = 0L
                 // Plus the sizes' shared part, for a launcher stack whose real box none of them fits (27 Nov 2026)
