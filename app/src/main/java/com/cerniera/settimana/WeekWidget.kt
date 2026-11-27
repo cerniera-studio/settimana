@@ -102,9 +102,10 @@ class WeekWidget : AppWidgetProvider() {
                 val seat = Backdrop.seat(store(c), id)
                 val map = LinkedHashMap<SizeF, RemoteViews>()
                 var spent = 0L
-                (listOf(now) + list.filter { !same(it, now) }).forEachIndexed { index, s ->
+                // Plus the sizes' shared part, for a launcher stack whose real box none of them fits (27 Nov 2026)
+                com.cerniera.kit.WidgetSizes.withShared(listOf(now) + list.filter { !same(it, now) }).forEachIndexed { index, (s, up) ->
                     val isNow = index == 0
-                    var px = Math.round(s.width * d); var py = Math.round(s.height * d)
+                    var px = Math.round(s.width * d * up); var py = Math.round(s.height * d * up)
                     // Measured by a tap at this very size, on this screen: its true pixels
                     if (isNow && seat != null && seat.exact && seat.screenW == screen.x && seat.screenH == screen.y &&
                         Math.abs(seat.repW - s.width) < 1.5f && Math.abs(seat.repH - s.height) < 1.5f) {
@@ -115,7 +116,7 @@ class WeekWidget : AppWidgetProvider() {
                     val bw = Math.round(px * f).coerceAtLeast(40); val bh = Math.round(py * f).coerceAtLeast(30)
                     spent += bw.toLong() * bh * 4
                     // The picture's own dp, from its pixels (the tap-measured size may differ a little from the report)
-                    val dd = d * f
+                    val dd = d * up * f
                     // Every picture on the family's ground (27 Nov 2026): if the launcher shows the one drawn
                     // for the other orientation, a solid finish is still the same tone as its neighbours
                     val ground = Family.ground(c, store(c), id)
