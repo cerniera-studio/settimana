@@ -224,19 +224,26 @@ object WeekFace {
         val shown = if (all.size > lines) all.take(max(1, lines - 1)) else all
         val more = all.size - shown.size
         val withTimes = text.w >= 120f * k
-        // Too narrow for a title to read: the day's count instead of a word cut to a letter
-        if (text.w - 8f * k < 44f * k) {
+        // On a single line, the count sits at its end rather than taking the line from the first item
+        val inlineMore = if (more > 0 && shown.size == lines) "+$more" else null
+        val endRoom = inlineMore?.let { mp.measureText(it) + 6f * k } ?: 0f
+        // Each title in whole words (27 Nov 2026): if any would be cut inside its first word ("Arsena…",
+        // "Fir…", as the widget audit found), the day shows its counts instead
+        val titles = shown.map { it ->
+            val x = text.l + 8f * k + (if (withTimes && it.time != null) mp.measureText(it.time) + 5f * k else 0f)
+            val room = text.r - x - (if (it === shown.last()) endRoom else 0f)
+            Grammar.words(it.title, tp, room)
+        }
+        // Too narrow for a title to read: the day's count instead of a word cut short
+        if (text.w - 8f * k < 44f * k || titles.any { it == null }) {
             val ev = day.events.size; val kn = day.knots.count { !it.done }
             val words = listOfNotNull(ev.takeIf { it > 0 }?.let { if (it == 1) "1 event" else "$it events" }, kn.takeIf { it > 0 }?.let { if (it == 1) "1 knot" else "$it knots" })
             var yy = text.t
             for (w in words.take(lines)) { cv.drawText(Grammar.fit(w, mp, text.w), text.l, yy + (lead - Grammar.META * k) / 2 + Grammar.cap(mp), mp); yy += lead }
             return
         }
-        // On a single line, the count sits at its end rather than taking the line from the first item
-        val inlineMore = if (more > 0 && shown.size == lines) "+$more" else null
-        val endRoom = inlineMore?.let { mp.measureText(it) + 6f * k } ?: 0f
         var y = text.t
-        for (it in shown) {
+        for ((i, it) in shown.withIndex()) {
             val base = y + (lead - Grammar.META * k) / 2 + Grammar.cap(tp)
             var x = text.l
             dot(cv, x + 2.2f * k, base - Grammar.cap(tp) / 2, 2.2f * k, it.colour)
@@ -244,7 +251,7 @@ object WeekFace {
             if (withTimes && it.time != null) { cv.drawText(it.time, x, base, mp); x += mp.measureText(it.time) + 5f * k }
             val last = it === shown.last()
             val room = text.r - x - (if (last) endRoom else 0f)
-            if (room > 8f * k) cv.drawText(Grammar.fit(it.title, tp, room), x, base, tp)
+            if (room > 8f * k) titles[i]?.let { t -> cv.drawText(t, x, base, tp) }
             if (last && inlineMore != null) cv.drawText(inlineMore, text.r - mp.measureText(inlineMore), base, mp)
             y += lead
         }
